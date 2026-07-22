@@ -76,7 +76,7 @@ def log_method(func):
                 "checkin": {"status": "签到失败", "points": "0", "message": ""},
                 "get_status": ("None 天", -2),
                 "get_points": ("None 积分", 0),
-                "exchange": "",
+                "exchange": "兑换失败",
             }
 
             if method_name in DEFAULT_ERRORS:
@@ -212,6 +212,7 @@ class API:
         return {
             "origin": f"https://{self.domain}",
             "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.0.0 Safari/537.36",
+            "content-type": "application/json;charset=UTF-8",
         }
 
     def _log(self, level: str, emoji: str, message: str, force: bool = False) -> None:
@@ -354,7 +355,13 @@ class API:
     def exchange(self, cookies: str, plan: str, required_points: int) -> str:
         """执行兑换"""
         url = self._get_full_url(self.EXCHANGE_URL)
-        response = self._make_request(url, "POST", {"planType": plan}, cookies)
+        # 兼容新旧 API Payload 命名
+        exchange_payload = {
+            "plan": plan,
+            "planType": plan,
+            "plan_type": plan
+        }
+        response = self._make_request(url, "POST", exchange_payload, cookies)
 
         if response:
             data = response.json()
@@ -398,7 +405,7 @@ class PushService:
 
     def send(self, title: str, content: str) -> bool:
         """发送推送"""
-        if not self.config.push_key:
+        if not hasattr(self.config, "push_key") or not self.config.push_key:
             logger.info(f"{LogEmoji.WARNING} 未设置推送密钥，跳过推送通知。")
             return False
 
@@ -472,15 +479,24 @@ class Checker:
             points_str, points_num = api.get_points(cookie)
             result.points_total = points_str
 
-            # 4. 执行兑换
+            # 4. 执行兑换 (前置积分检查)
             required_points = self.config.EXCHANGE_PLANS.get(self.config.exchange_plan, 500)
-            self._log(
-                cookie_idx,
-                domain,
-                LogEmoji.EXCHANGE,
-                f"开始兑换 {self.config.exchange_plan} (需要 {required_points} 积分)",
-            )
-            result.exchange = api.exchange(cookie, self.config.exchange_plan, required_points)
+            if points_num >= required_points:
+                self._log(
+                    cookie_idx,
+                    domain,
+                    LogEmoji.EXCHANGE,
+                    f"开始兑换 {self.config.exchange_plan} (需要 {required_points} 积分)",
+                )
+                result.exchange = api.exchange(cookie, self.config.exchange_plan, required_points)
+            else:
+                self._log(
+                    cookie_idx,
+                    domain,
+                    LogEmoji.INFO,
+                    f"积分不足以兑换 {self.config.exchange_plan} (当前: {points_num} / 需要: {required_points})",
+                )
+                result.exchange = f"未达到兑换积分要求 ({points_num}/{required_points})"
 
         return result
 
@@ -546,7 +562,7 @@ def main():
 
     # 4. 发送推送
     logger.info(f"{LogEmoji.START} 步骤 4: 发送推送")
-    push_service = PushService(config if "config" in locals() else "")
+    push_service = PushService(config if "config" in locals() else None)
     push_service.send(title, content)
     logger.info(f"{LogEmoji.END} 签到完成")
 
