@@ -259,119 +259,119 @@ class API:
         return {"token": self.domain}
 
 
-@log_method
-def checkin(self, cookies: str) -> Dict[str, Union[str, CheckinStatus]]:
-    """执行签到，针对 Cloudflare 验证失败进行有限重试"""
+    @log_method
+    def checkin(self, cookies: str) -> Dict[str, Union[str, CheckinStatus]]:
+        """执行签到，针对 Cloudflare 验证失败进行有限重试"""
 
-    url = self._get_full_url(self.CHECKIN_URL)
-    checkin_data = self._get_checkin_data()
+        url = self._get_full_url(self.CHECKIN_URL)
+        checkin_data = self._get_checkin_data()
 
-    result = {
-        "status": "签到失败",
-        "points": "0",
-        "message": "",
-        "code": CheckinStatus.FAILURE,
-    }
+        result = {
+            "status": "签到失败",
+            "points": "0",
+            "message": "",
+            "code": CheckinStatus.FAILURE,
+        }
 
-    max_attempts = 3
+        max_attempts = 3
 
-    for attempt in range(1, max_attempts + 1):
-
-        self._log(
-            "info",
-            LogEmoji.INFO,
-            f"签到请求，第 {attempt}/{max_attempts} 次",
-            force=True
-        )
-
-        response = self._make_request(
-            url, "POST", checkin_data, cookies
-        )
-
-        if response is None:
-            result["message"] = "HTTP 请求失败"
-            break
-
-        try:
-            data = response.json()
-        except ValueError:
-            result["message"] = "服务器返回非 JSON 响应"
-            self._log(
-                "error",
-                LogEmoji.ERROR,
-                f"响应格式异常，HTTP={response.status_code}, "
-                f"CF-Ray={response.headers.get('CF-Ray', 'None')}",
-                force=True
-            )
-            break
-
-        code = data.get("code", -2)
-        message = str(data.get("message", "无消息字段"))
-        points = str(data.get("points", 0))
-
-        # 仅对明确的 Cloudflare 验证失败进行有限重试
-        if str(code) == "5" and "Cloudflare" in message:
+        for attempt in range(1, max_attempts + 1):
 
             self._log(
-                "warning",
-                LogEmoji.WARNING,
-                f"Cloudflare 验证失败：{message}，"
-                f"CF-Ray={response.headers.get('CF-Ray', 'None')}",
+                "info",
+                LogEmoji.INFO,
+                f"签到请求，第 {attempt}/{max_attempts} 次",
                 force=True
             )
 
-            if attempt < max_attempts:
-                wait_seconds = attempt * 10
+            response = self._make_request(
+                url, "POST", checkin_data, cookies
+            )
+
+            if response is None:
+                result["message"] = "HTTP 请求失败"
+                break
+
+            try:
+                data = response.json()
+            except ValueError:
+                result["message"] = "服务器返回非 JSON 响应"
                 self._log(
-                    "info",
-                    LogEmoji.INFO,
-                    f"等待 {wait_seconds} 秒后重试",
+                    "error",
+                    LogEmoji.ERROR,
+                    f"响应格式异常，HTTP={response.status_code}, "
+                    f"CF-Ray={response.headers.get('CF-Ray', 'None')}",
                     force=True
                 )
-                time.sleep(wait_seconds)
-                continue
+                break
 
-            result["message"] = message
-            break
+            code = data.get("code", -2)
+            message = str(data.get("message", "无消息字段"))
+            points = str(data.get("points", 0))
 
-        # 签到成功
-        if code == CheckinStatus.SUCCESS.value:
-            self._log(
-                "info",
-                LogEmoji.SUCCESS,
-                f"{{ code : {code}, points : {points}, message : {message} }}"
-            )
-            result["code"] = CheckinStatus.SUCCESS
-            result["status"] = "签到成功"
-            result["points"] = points
-            result["message"] = message
-            return result
+            # 仅对明确的 Cloudflare 验证失败进行有限重试
+            if str(code) == "5" and "Cloudflare" in message:
 
-        # 重复签到
-        elif code == CheckinStatus.REPEAT.value:
-            self._log(
-                "info",
-                LogEmoji.REPEAT,
-                f"{{ code : {code}, message : {message} }}",
-                force=True
-            )
-            result["code"] = CheckinStatus.REPEAT
-            result["status"] = "重复签到"
-            result["message"] = message
-            return result
+                self._log(
+                    "warning",
+                    LogEmoji.WARNING,
+                    f"Cloudflare 验证失败：{message}，"
+                    f"CF-Ray={response.headers.get('CF-Ray', 'None')}",
+                    force=True
+                )
 
-        # 其他错误不重复提交
-        else:
-            self._log(
-                "error",
-                LogEmoji.FAIL,
-                f"{{ code : {code}, message : {message} }}",
-                force=True
-            )
-            result["message"] = message
-            break
+                if attempt < max_attempts:
+                    wait_seconds = attempt * 10
+                    self._log(
+                        "info",
+                        LogEmoji.INFO,
+                        f"等待 {wait_seconds} 秒后重试",
+                        force=True
+                    )
+                    time.sleep(wait_seconds)
+                    continue
 
-    return result
+                result["message"] = message
+                break
+
+            # 签到成功
+            if code == CheckinStatus.SUCCESS.value:
+                self._log(
+                    "info",
+                    LogEmoji.SUCCESS,
+                    f"{{ code : {code}, points : {points}, message : {message} }}"
+                )
+                result["code"] = CheckinStatus.SUCCESS
+                result["status"] = "签到成功"
+                result["points"] = points
+                result["message"] = message
+                return result
+
+            # 重复签到
+            elif code == CheckinStatus.REPEAT.value:
+                self._log(
+                    "info",
+                    LogEmoji.REPEAT,
+                    f"{{ code : {code}, message : {message} }}",
+                    force=True
+                )
+                result["code"] = CheckinStatus.REPEAT
+                result["status"] = "重复签到"
+                result["message"] = message
+                return result
+
+            # 其他错误不重复提交
+            else:
+                self._log(
+                    "error",
+                    LogEmoji.FAIL,
+                    f"{{ code : {code}, message : {message} }}",
+                    force=True
+                )
+                result["message"] = message
+                break
+
+        return result
 
 
     @log_method
